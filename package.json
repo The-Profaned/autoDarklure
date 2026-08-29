@@ -1,0 +1,58 @@
+{
+	"name": "osrs-botmaker-typescript",
+	"version": "2.1.32",
+	"author": {
+		"name": "Chandler Ferry",
+		"url": "https://github.com/ChandlerFerry"
+	},
+	"description": "Typescript Development environment for Sox's Botmaker",
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"license": "Apache-2.0",
+	"private": true,
+	"type": "module",
+	"contributors": [],
+	"scripts": {
+		"lint": "eslint . --quiet",
+		"build": "rollup -c rollup.config.js",
+		"compile": "pnpm build",
+		"watch": "rollup --watch -c rollup.config.js"
+	},
+	"devDependencies": {
+		"@babel/preset-env": "^7.24.6",
+		"@eslint/eslintrc": "^2.1.1",
+		"@eslint/js": "~8.48.0",
+		"@rollup/plugin-babel": "^6.0.4",
+		"@rollup/plugin-node-resolve": "^15.2.3",
+		"@rollup/plugin-typescript": "^11.1.6",
+		"@tsconfig/node20": "^20.1.2",
+		"@tsconfig/strictest": "^2.0.3",
+		"@types/eslint": "^8.56.5",
+		"@types/eslint__js": "^8.42.3",
+		"@types/fs-extra": "^11.0.4",
+		"@typescript-eslint/eslint-plugin": "^7.1.1",
+		"@typescript-eslint/parser": "^7.1.1",
+		"chalk": "^4.1.0",
+		"eslint": "^8.57.0",
+		"eslint-config-prettier": "^9.1.0",
+		"eslint-import-resolver-typescript": "^3.6.1",
+		"eslint-plugin-import": "^2.29.1",
+		"eslint-plugin-jest": "^27.9.0",
+		"eslint-plugin-unicorn": "^51.0.1",
+		"fs-extra": "^11.2.0",
+		"glob": "^10.4.1",
+		"jsonc-eslint-parser": "^2.4.0",
+		"prettier": "^3.2.5",
+		"prettier-eslint": "^16.3.0",
+		"rollup": "^4.18.0",
+		"rollup-plugin-cleanup": "^3.2.1",
+		"tsx": "^4.7.1",
+		"typescript": "5.2.2",
+		"typescript-eslint": "^7.1.1"
+	},
+	"dependencies": {
+		"@deafwave/osrs-botmaker-config-manager": "^0.2.9",
+		"@deafwave/osrs-botmaker-types": "^0.8.35"
+	}
+}

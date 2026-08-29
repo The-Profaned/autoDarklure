@@ -1,0 +1,33 @@
+{
+	// Windows Compatibility
+	"files.eol": "\n",
+	// Prettier-ESLint on save (prettier-eslint, prettier, eslint)
+	"editor.defaultFormatter": "rvest.vs-code-prettier-eslint",
+	"editor.formatOnPaste": false, // required
+	"editor.formatOnType": false, // required
+	"editor.formatOnSave": true, // optional
+	"editor.formatOnSaveMode": "file", // required to format on save
+	// "files.autoSave": "onFocusChange", // optional but recommended
+	"eslint.quiet": true,
+
+	"javascript.preferences.importModuleSpecifier": "relative",
+	"typescript.preferences.importModuleSpecifier": "relative",
+	"typescript.preferences.importModuleSpecifierEnding": "js",
+	"javascript.preferences.importModuleSpecifierEnding": "js",
+
+	// VSCode Explorer - Ignore Folders
+	"files.exclude": {
+		"**/node_modules": true,
+		"**/.git": true,
+		// "**/.vscode": true,
+		".gitignore": true,
+		".editorconfig": true,
+		".gitattributes": true,
+		".npmrc": true,
+		".nvmrc": true,
+		".prettierignore": true,
+		".prettierrc": true,
+		"pnpm-lock.yaml": true,
+		"rollup.config.js": true
+	}
+}
