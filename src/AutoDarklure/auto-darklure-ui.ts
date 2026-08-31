@@ -4,27 +4,38 @@ export type ImplingType = 'gourmet' | 'magpie' | 'dragon';
 export type AutoDarkLureUiState = {
 	uiCompleted: boolean;
 	gameTick: number;
+	whitelistedPlayerNames: string[];
 	gourmet: boolean;
 	magpie: boolean;
 	dragon: boolean;
-	searchRange: number;
+	gourmetSearchRange: number;
+	magpieSearchRange: number;
+	dragonSearchRange: number;
 };
 
 // Default UI values, replaced with saved values whenever the script starts.
 const uiState: AutoDarkLureUiState = {
 	uiCompleted: false,
 	gameTick: 0,
+	whitelistedPlayerNames: [],
 	gourmet: true,
 	magpie: true,
 	dragon: true,
-	searchRange: 10,
+	gourmetSearchRange: 10,
+	magpieSearchRange: 10,
+	dragonSearchRange: 10,
 };
 
 // bmCache keys persist settings between script runs.
 const GOURMET_CACHE_KEY = 'autoDarklure.settings.gourmet';
 const MAGPIE_CACHE_KEY = 'autoDarklure.settings.magpie';
 const DRAGON_CACHE_KEY = 'autoDarklure.settings.dragon';
-const SEARCH_RANGE_CACHE_KEY = 'autoDarklure.settings.searchRange';
+const GOURMET_SEARCH_RANGE_CACHE_KEY =
+	'autoDarklure.settings.gourmetSearchRange';
+const MAGPIE_SEARCH_RANGE_CACHE_KEY = 'autoDarklure.settings.magpieSearchRange';
+const DRAGON_SEARCH_RANGE_CACHE_KEY = 'autoDarklure.settings.dragonSearchRange';
+const WHITELISTED_PLAYER_NAMES_CACHE_KEY =
+	'autoDarklure.settings.whitelistedPlayerNames';
 
 // Keep a reference so the window can be closed when starting or ending a run.
 let startFrame: javax.swing.JFrame | null = null;
@@ -41,8 +52,43 @@ const disposeStartFrame = (): void => {
 // The game loop uses this to wait for the Start Script button.
 export const isUiCompleted = (): boolean => uiState.uiCompleted;
 
+const getWhitelistEntry = (name: string): string => `${name}`.trim();
+
+const parseWhitelistedPlayerNames = (value: string): string[] => {
+	const names: string[] = [];
+	const entries = `${value}`.split(',');
+	let index = 0;
+	while (index < entries.length) {
+		const name = getWhitelistEntry(entries[index]);
+		if (name.length > 0) {
+			names.push(name);
+		}
+		index += 1;
+	}
+	return names;
+};
+
+// Return the normalized player names allowed to activate support casting.
+export const getWhitelistedPlayerNames = (): string[] =>
+	uiState.whitelistedPlayerNames;
+
 // Expose the chosen maximum targeting distance to the main script.
-export const getSearchRange = (): number => uiState.searchRange;
+export const getSearchRange = (type: ImplingType): number => {
+	switch (type) {
+		case 'gourmet': {
+			return uiState.gourmetSearchRange;
+		}
+		case 'magpie': {
+			return uiState.magpieSearchRange;
+		}
+		case 'dragon': {
+			return uiState.dragonSearchRange;
+		}
+		default: {
+			return uiState.gourmetSearchRange;
+		}
+	}
+};
 
 // Return the impling categories currently enabled by the user.
 export const getSelectedImplingTypes = (): ImplingType[] => {
@@ -89,32 +135,57 @@ const createStartFrame = (): javax.swing.JFrame => {
 		'Dragon Impling',
 		uiState.dragon,
 	);
-
-	// The checkboxes let the user choose which impling families may be targeted.
-	checkboxPanel.add(gourmetCheckbox);
-	checkboxPanel.add(magpieCheckbox);
-	checkboxPanel.add(dragonCheckbox);
-
-	const rangePanel = new javax.swing.JPanel(
-		new java.awt.FlowLayout(java.awt.FlowLayout.LEFT),
+	const whitelistLabel = new javax.swing.JLabel(
+		'Whitelisted players (comma-separated)',
 	);
-	const rangeLabel = new javax.swing.JLabel(
-		`Search range: ${uiState.searchRange} tiles`,
+	const whitelistField = new javax.swing.JTextField(
+		uiState.whitelistedPlayerNames.join(', '),
+		24,
 	);
-	const rangeSlider = new javax.swing.JSlider(0, 5, 20, uiState.searchRange);
-	// Configure one-tile steps with labels at five-tile intervals.
-	rangeSlider.setMajorTickSpacing(5);
-	rangeSlider.setMinorTickSpacing(1);
-	rangeSlider.setPaintTicks(true);
-	rangeSlider.setPaintLabels(true);
-	rangeSlider.setSnapToTicks(true);
-	// Reflect slider movement immediately so the selected distance is visible.
-	rangeSlider.addChangeListener(() => {
-		rangeLabel.setText(`Search range: ${rangeSlider.getValue()} tiles`);
-	});
-	rangePanel.add(rangeLabel);
-	rangePanel.add(rangeSlider);
-	checkboxPanel.add(rangePanel);
+
+	const createImplingRow = (
+		checkbox: javax.swing.JCheckBox,
+		label: string,
+		initialValue: number,
+	): javax.swing.JSlider => {
+		const rowPanel = new javax.swing.JPanel(
+			new java.awt.FlowLayout(java.awt.FlowLayout.LEFT),
+		);
+		const rangeLabel = new javax.swing.JLabel(
+			`${label}: ${initialValue} tiles`,
+		);
+		const rangeSlider = new javax.swing.JSlider(0, 5, 20, initialValue);
+		rangeSlider.setMajorTickSpacing(5);
+		rangeSlider.setMinorTickSpacing(1);
+		rangeSlider.setPaintTicks(true);
+		rangeSlider.setPaintLabels(true);
+		rangeSlider.setSnapToTicks(true);
+		rangeSlider.addChangeListener(() => {
+			rangeLabel.setText(`${label}: ${rangeSlider.getValue()} tiles`);
+		});
+		rowPanel.add(checkbox);
+		rowPanel.add(rangeLabel);
+		rowPanel.add(rangeSlider);
+		checkboxPanel.add(rowPanel);
+		return rangeSlider;
+	};
+	const gourmetRangeSlider = createImplingRow(
+		gourmetCheckbox,
+		'Range',
+		uiState.gourmetSearchRange,
+	);
+	const magpieRangeSlider = createImplingRow(
+		magpieCheckbox,
+		'Range',
+		uiState.magpieSearchRange,
+	);
+	const dragonRangeSlider = createImplingRow(
+		dragonCheckbox,
+		'Range',
+		uiState.dragonSearchRange,
+	);
+	checkboxPanel.add(whitelistLabel);
+	checkboxPanel.add(whitelistField);
 
 	const buttonPanel = new javax.swing.JPanel(
 		new java.awt.FlowLayout(java.awt.FlowLayout.CENTER),
@@ -125,13 +196,33 @@ const createStartFrame = (): javax.swing.JFrame => {
 		uiState.gourmet = gourmetCheckbox.isSelected();
 		uiState.magpie = magpieCheckbox.isSelected();
 		uiState.dragon = dragonCheckbox.isSelected();
-		uiState.searchRange = rangeSlider.getValue();
+		uiState.gourmetSearchRange = gourmetRangeSlider.getValue();
+		uiState.magpieSearchRange = magpieRangeSlider.getValue();
+		uiState.dragonSearchRange = dragonRangeSlider.getValue();
+		uiState.whitelistedPlayerNames = parseWhitelistedPlayerNames(
+			whitelistField.getText(),
+		);
 
 		// Save every setting so the next run opens with the same choices.
 		bot.bmCache.saveBoolean(GOURMET_CACHE_KEY, uiState.gourmet);
 		bot.bmCache.saveBoolean(MAGPIE_CACHE_KEY, uiState.magpie);
 		bot.bmCache.saveBoolean(DRAGON_CACHE_KEY, uiState.dragon);
-		bot.bmCache.saveInt(SEARCH_RANGE_CACHE_KEY, uiState.searchRange);
+		bot.bmCache.saveInt(
+			GOURMET_SEARCH_RANGE_CACHE_KEY,
+			uiState.gourmetSearchRange,
+		);
+		bot.bmCache.saveInt(
+			MAGPIE_SEARCH_RANGE_CACHE_KEY,
+			uiState.magpieSearchRange,
+		);
+		bot.bmCache.saveInt(
+			DRAGON_SEARCH_RANGE_CACHE_KEY,
+			uiState.dragonSearchRange,
+		);
+		bot.bmCache.saveString(
+			WHITELISTED_PLAYER_NAMES_CACHE_KEY,
+			uiState.whitelistedPlayerNames.join(','),
+		);
 
 		// Release the game loop and remove the setup UI.
 		uiState.uiCompleted = true;
@@ -153,13 +244,24 @@ const createStartFrame = (): javax.swing.JFrame => {
 export function onStart(): void {
 	uiState.gameTick = 0;
 	uiState.uiCompleted = false;
+	uiState.whitelistedPlayerNames = parseWhitelistedPlayerNames(
+		bot.bmCache.getString(WHITELISTED_PLAYER_NAMES_CACHE_KEY, ''),
+	);
 	uiState.gourmet = bot.bmCache.getBoolean(GOURMET_CACHE_KEY, true);
 	uiState.magpie = bot.bmCache.getBoolean(MAGPIE_CACHE_KEY, true);
 	uiState.dragon = bot.bmCache.getBoolean(DRAGON_CACHE_KEY, true);
-	// Clamp saved values so an invalid cache value cannot break the slider.
-	uiState.searchRange = Math.min(
+	// Clamp saved values so an invalid cache value cannot break a slider.
+	uiState.gourmetSearchRange = Math.min(
 		20,
-		Math.max(5, bot.bmCache.getInt(SEARCH_RANGE_CACHE_KEY, 10)),
+		Math.max(5, bot.bmCache.getInt(GOURMET_SEARCH_RANGE_CACHE_KEY, 10)),
+	);
+	uiState.magpieSearchRange = Math.min(
+		20,
+		Math.max(5, bot.bmCache.getInt(MAGPIE_SEARCH_RANGE_CACHE_KEY, 10)),
+	);
+	uiState.dragonSearchRange = Math.min(
+		20,
+		Math.max(5, bot.bmCache.getInt(DRAGON_SEARCH_RANGE_CACHE_KEY, 10)),
 	);
 
 	disposeStartFrame();

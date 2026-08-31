@@ -4,6 +4,7 @@ import {
 	onStart as uiOnStart,
 	onEnd as uiOnEnd,
 	getSearchRange,
+	getWhitelistedPlayerNames,
 	isUiCompleted,
 } from './auto-darklure-ui.js';
 
@@ -26,18 +27,22 @@ const IMPLING_IDS: Record<ImplingType, number> = {
 	dragon_2: net.runelite.api.NpcID.DRAGON_IMPLING_1654,
 };
 
+const IMPLING_TYPE_BY_ID: Record<number, 'gourmet' | 'magpie' | 'dragon'> = {
+	[IMPLING_IDS.gourmet]: 'gourmet',
+	[IMPLING_IDS.gourmet_2]: 'gourmet',
+	[IMPLING_IDS.magpie]: 'magpie',
+	[IMPLING_IDS.magpie_2]: 'magpie',
+	[IMPLING_IDS.dragon]: 'dragon',
+	[IMPLING_IDS.dragon_2]: 'dragon',
+};
+
 // OSRS game ticks are 600 ms, so convert the known cooldowns to ticks once.
 const SPELL_COOLDOWN_SECONDS = 10.2;
 const SPELL_COOLDOWN_TICKS = Math.max(
 	1,
 	Math.round((SPELL_COOLDOWN_SECONDS * 1000) / 600),
 );
-const TARGET_EFFECT_COOLDOWN_SECONDS = 61.2;
-const TARGET_EFFECT_COOLDOWN_TICKS = Math.max(
-	1,
-	Math.round((TARGET_EFFECT_COOLDOWN_SECONDS * 1000) / 600),
-);
-const CAST_CONFIRMATION_TIMEOUT_TICKS = 5;
+const CAST_CONFIRMATION_TIMEOUT_TICKS = 8;
 
 // A cast is pending until a Magic XP increase proves that Dark Lure succeeded.
 type PendingCast = {
@@ -46,15 +51,20 @@ type PendingCast = {
 	magicExperienceBeforeCast: number;
 };
 
+type ImplingSpawn = {
+	x: number;
+	y: number;
+};
+
 // State that lasts for one script run. It is reset in onStart().
 const scriptState = {
 	anchorX: 0,
 	anchorY: 0,
 	gameTick: 0,
 	lastCastAt: 0,
-	lastCastByTarget: new Map<string, number>(),
 	lastLogTick: new Map<string, number>(),
 	pendingCast: null as PendingCast | null,
+	spawnByTarget: new Map<string, ImplingSpawn>(),
 };
 
 // Avoid repeating the same diagnostic message on every game tick.
@@ -79,6 +89,11 @@ function getTargetKey(npc: net.runelite.api.NPC): string {
 	return `${npc.getIndex()}:${npc.getId()}`;
 }
 
+// Both NPC appearances of an impling family share that family's UI range.
+function getSearchRangeForNpcId(npcId: number): number {
+	return getSearchRange(IMPLING_TYPE_BY_ID[npcId]);
+}
+
 // Check the global delay that applies after every confirmed Dark Lure cast.
 function isSpellOnCooldown(): boolean {
 	return (
@@ -87,29 +102,34 @@ function isSpellOnCooldown(): boolean {
 	);
 }
 
-// Check the longer effect delay for one specific impling.
-function isTargetOnCooldown(npc: net.runelite.api.NPC): boolean {
-	const key = getTargetKey(npc);
-	const lastCastTick = scriptState.lastCastByTarget.get(key);
-	if (lastCastTick === undefined) {
-		return false;
-	}
-	return scriptState.gameTick - lastCastTick < TARGET_EFFECT_COOLDOWN_TICKS;
-}
-
 // Start the global cooldown at the current script tick.
 function setSpellCooldown(): void {
 	scriptState.lastCastAt = scriptState.gameTick;
 }
 
-// Start the per-impling cooldown for this NPC index and ID combination.
-function setTargetCooldown(npc: net.runelite.api.NPC): void {
-	scriptState.lastCastByTarget.set(getTargetKey(npc), scriptState.gameTick);
+// Record the tile where an impling first appears, then require it to move away.
+function hasMovedFromSpawn(npc: net.runelite.api.NPC): boolean {
+	const targetKey = getTargetKey(npc);
+	const location = npc.getWorldLocation();
+	const spawn = scriptState.spawnByTarget.get(targetKey);
+	if (!spawn) {
+		scriptState.spawnByTarget.set(targetKey, {
+			x: location.getX(),
+			y: location.getY(),
+		});
+		return false;
+	}
+
+	const distanceFromSpawn = Math.max(
+		Math.abs(location.getX() - spawn.x),
+		Math.abs(location.getY() - spawn.y),
+	);
+	return distanceFromSpawn >= 2;
 }
 
-// Forget cooldowns for implings that are no longer loaded in the game client.
-function removeDespawnedTargetCooldowns(): void {
-	if (scriptState.lastCastByTarget.size === 0) {
+// Forget spawn records for implings that are no longer loaded in the game client.
+function removeDespawnedTargetSpawns(): void {
+	if (scriptState.spawnByTarget.size === 0) {
 		return;
 	}
 
@@ -121,10 +141,9 @@ function removeDespawnedTargetCooldowns(): void {
 		}
 	}
 
-	// An NPC slot may later be reused, so do not keep its old cooldown entry.
-	for (const targetKey of scriptState.lastCastByTarget.keys()) {
+	for (const targetKey of scriptState.spawnByTarget.keys()) {
 		if (!activeTargetKeys.has(targetKey)) {
-			scriptState.lastCastByTarget.delete(targetKey);
+			scriptState.spawnByTarget.delete(targetKey);
 		}
 	}
 }
@@ -142,7 +161,6 @@ function isPendingCastResolved(): boolean {
 	// A Magic XP increase is the confirmation that the spell actually cast.
 	if (currentMagicExperience > pendingCast.magicExperienceBeforeCast) {
 		setSpellCooldown();
-		setTargetCooldown(pendingCast.target);
 		log.print(
 			`[AutoDarklure] Dark Lure confirmed on ${pendingCast.target.getName() ?? 'impling'}`,
 		);
@@ -166,7 +184,7 @@ function isPendingCastResolved(): boolean {
 	return false;
 }
 
-// Find the nearest enabled impling that is in range and not on its own cooldown.
+// Find the nearest enabled impling that is in range.
 function getClosestSelectedImpling(): net.runelite.api.NPC | null {
 	const selectedIds = getSelectedImplingIds();
 	if (selectedIds.length === 0) {
@@ -192,13 +210,13 @@ function getClosestSelectedImpling(): net.runelite.api.NPC | null {
 		const npcsWithId = bot.npcs.getWithIds([implingId]);
 		if (npcsWithId.length > 0) {
 			for (const npc of npcsWithId) {
-				if (!isTargetOnCooldown(npc)) {
+				if (hasMovedFromSpawn(npc)) {
 					const distribution = npc
 						.getWorldLocation()
 						.distanceTo(player.getWorldLocation());
 					// The configurable range prevents targeting implings across the scene.
 					if (
-						distribution <= getSearchRange() &&
+						distribution <= getSearchRangeForNpcId(npc.getId()) &&
 						distribution < closestDistance
 					) {
 						closestDistance = distribution;
@@ -218,20 +236,66 @@ function getClosestSelectedImpling(): net.runelite.api.NPC | null {
 	return closestImpling;
 }
 
+function getExactPlayerName(name: string): string {
+	return `${name}`;
+}
+
+// Support casting is enabled only while a listed player is within five tiles.
+function isWhitelistedPlayerNearby(
+	localPlayer: net.runelite.api.Player,
+): boolean {
+	const whitelistedNames = getWhitelistedPlayerNames();
+	if (whitelistedNames.length === 0) {
+		return false;
+	}
+
+	const localLocation = localPlayer.getWorldLocation();
+	for (const player of client.getPlayers()) {
+		const playerName = player.getName();
+		if (
+			playerName !== null &&
+			whitelistedNames.includes(getExactPlayerName(playerName)) &&
+			player.getWorldLocation().distanceTo(localLocation) <= 5
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 // BotMaker calls this once when the user starts the script.
 export function onStart(): void {
 	log.print('[AutoDarklure] Script loaded');
 	// Clear run-specific state before displaying the saved UI settings.
 	scriptState.lastCastAt = 0;
-	scriptState.lastCastByTarget.clear();
 	scriptState.pendingCast = null;
+	scriptState.spawnByTarget.clear();
 	scriptState.anchorX = 0;
 	scriptState.anchorY = 0;
+	const player = client.getLocalPlayer();
+	if (player) {
+		const worldLocation = player.getWorldLocation();
+		scriptState.anchorX = worldLocation.getX();
+		scriptState.anchorY = worldLocation.getY();
+	}
 	uiOnStart();
 }
 
 // BotMaker calls this once per game tick; this is the script's main loop.
 export function onGameTick(): void {
+	const player = client.getLocalPlayer();
+	if (!player) {
+		return;
+	}
+
+	// Capture the initial tile if the player was unavailable during onStart().
+	if (scriptState.anchorX === 0 && scriptState.anchorY === 0) {
+		const worldLocation = player.getWorldLocation();
+		scriptState.anchorX = worldLocation.getX();
+		scriptState.anchorY = worldLocation.getY();
+	}
+
 	// Do not interact with the game until the user confirms the startup UI.
 	if (!isUiCompleted()) {
 		return;
@@ -240,8 +304,12 @@ export function onGameTick(): void {
 	// Use our own counter because it is reliable for this script's tick timing.
 	scriptState.gameTick += 1;
 
-	const player = client.getLocalPlayer();
-	if (!player) {
+	if (!isWhitelistedPlayerNearby(player)) {
+		if (shouldLog('whitelisted-player-not-nearby')) {
+			log.print(
+				'[AutoDarklure] Waiting for a whitelisted player within 5 tiles',
+			);
+		}
 		return;
 	}
 
@@ -250,29 +318,20 @@ export function onGameTick(): void {
 		return;
 	}
 
-	// Remove cooldown records belonging to implings that have despawned.
-	removeDespawnedTargetCooldowns();
+	// Remove spawn records belonging to implings that have despawned.
+	removeDespawnedTargetSpawns();
 
 	const worldLocation = player.getWorldLocation();
 
-	// Record the first valid player tile as the location to return to after luring.
-	if (scriptState.anchorX === 0 && scriptState.anchorY === 0) {
-		scriptState.anchorX = worldLocation.getX();
-		scriptState.anchorY = worldLocation.getY();
-	}
-
-	// Dark Lure can pull the player; return when more than two tiles from anchor.
+	// Dark Lure can pull the player; do not resume until back on the exact anchor tile.
 	const distanceFromAnchor = Math.max(
 		Math.abs(worldLocation.getX() - scriptState.anchorX),
 		Math.abs(worldLocation.getY() - scriptState.anchorY),
 	);
-	if (distanceFromAnchor > 2) {
-		// Request movement back to the anchor tile.
+	if (distanceFromAnchor > 0) {
+		// Request movement to the exact tile recorded when the script started.
 		bot.walking.walkToWorldPoint(scriptState.anchorX, scriptState.anchorY);
-		// Wait for an idle player before resuming target selection.
-		if (player.getPoseAnimation() !== -1) {
-			return;
-		}
+		return;
 	}
 
 	// A confirmed cast pauses all future Dark Lure attempts during its global delay.
@@ -283,16 +342,6 @@ export function onGameTick(): void {
 	// There is nothing to cast if no enabled impling is in the selected range.
 	const target = getClosestSelectedImpling();
 	if (!target) {
-		return;
-	}
-
-	// This guard also protects against a target changing state between search and cast.
-	if (isTargetOnCooldown(target)) {
-		if (shouldLog(`cooldown-${target.getId()}`)) {
-			log.print(
-				`[AutoDarklure] Target on cooldown: ${target.getName() ?? 'impling'} (ID: ${target.getId()})`,
-			);
-		}
 		return;
 	}
 
